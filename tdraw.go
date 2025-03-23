@@ -236,7 +236,7 @@ loop:
 							break
 						}
 					}
-					arr = arr[n:len(arr)]
+					arr = arr[n:]
 				}
 
 				{
