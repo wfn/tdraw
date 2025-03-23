@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"bytes"
 	"strings"
+	"flag"
+	"time"
+	"text/template"
 
 	"github.com/gdamore/tcell"
 	"github.com/gdamore/tcell/encoding"
@@ -21,6 +25,7 @@ const (
 
 var defStyle tcell.Style
 
+// TODO: fix or discard `Style` which is unused
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	for _, c := range str {
 		var comb []rune
@@ -160,9 +165,52 @@ func drawSelect(s tcell.Screen, x1, y1, x2, y2 int, sel bool) {
 	}
 }
 
+func StringFromKeys(m map[string]interface{}) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return strings.Join(keys, ", ")
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.SetOutput(os.Stdout)
+
+	var fileOut *os.File
+	var err error
+
+	now := time.Now()
+	filenameParamMap := map[string]interface{} {
+		"datetime": now.Format("2006-01-02_150405"),
+	}
+	sParams := StringFromKeys(filenameParamMap)
+	outputToFilePtr := flag.Bool("output-to-file", false, "on exit, save output to text file (disabled by default)")
+	initOutputFilenamePtr := flag.String("filename", "drawing_{{.datetime}}.txt", "output filename (optional params for it: " + sParams + ")")
+
+	flag.Parse()
+
+	if *outputToFilePtr {
+		var outParsedFnBuf bytes.Buffer
+
+		// get desired filename with optional dynamic vars resolved
+		t := template.Must(template.New("").Parse(*initOutputFilenamePtr))
+		if err = t.Execute(&outParsedFnBuf, filenameParamMap); err != nil {
+			panic(err)
+		}
+		outputFilename := outParsedFnBuf.String()
+
+		if fileOut, err = os.Create(outputFilename); err != nil {
+			panic(err)
+		}
+		defer func() {
+			fmt.Println("Output file:", outputFilename)
+			err := fileOut.Close()
+			if err != nil {
+				fmt.Println("Error closing it! => ", err)
+			}
+		}()
+	}
 
 	encoding.Register()
 
@@ -217,6 +265,8 @@ loop:
 			s.Sync()
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyCtrlC || ev.Key() == tcell.KeyCtrlD {
+				// clean up and exit
+
 				s.Sync()
 				sizeX, sizeY := s.Size()
 				arr := make([]string, sizeY)
@@ -236,7 +286,7 @@ loop:
 							break
 						}
 					}
-					arr = arr[n:len(arr)]
+					arr = arr[n:]
 				}
 
 				{
@@ -254,6 +304,10 @@ loop:
 				s.Clear()
 				for y := 0; y < len(arr); y++ {
 					fmt.Println(arr[y])
+					if *outputToFilePtr {
+						fileOut.WriteString(arr[y] + "\n")
+					}
+
 				}
 				break loop
 			}
